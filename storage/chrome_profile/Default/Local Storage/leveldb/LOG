@@ -1,0 +1,5 @@
+2025/09/12-22:59:57.559 52a6 Creating DB /var/www/html/personal/ecommerce-scraper/storage/chrome_profile/Default/Local Storage/leveldb since it was missing.
+2025/09/12-22:59:57.623 52a6 Reusing MANIFEST /var/www/html/personal/ecommerce-scraper/storage/chrome_profile/Default/Local Storage/leveldb/MANIFEST-000001
+2025/09/12-23:00:36.522 52a8 Level-0 table #5: started
+2025/09/12-23:00:36.535 52a8 Level-0 table #5: 45814 bytes OK
+2025/09/12-23:00:36.543 52a8 Delete type=0 #3

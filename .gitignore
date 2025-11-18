@@ -1,0 +1,48 @@
+# Chrome WebDriver User Data (should not be committed)
+storage/chrome_profile/
+storage/chrome_profile/**
+
+# Laravel storage (recommended)
+/storage/*.key
+/storage/logs/*
+/storage/framework/sessions/*
+/storage/framework/cache/*
+/storage/framework/views/*
+
+# Ignore macOS files
+.DS_Store
+
+# Logs
+*.log
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Node / build
+/node_modules
+/public/build
+/public/hot
+
+# Vendor
+/vendor
+
+# PHP Unit
+.phpunit.result.cache
+/.phpunit.cache
+
+# IDE
+/.vscode
+/.idea
+/.fleet
+/.zed
+
+# Composer Auth
+auth.json
+
+# Nova
+/.nova
+
+# Misc
+Thumbs.db
