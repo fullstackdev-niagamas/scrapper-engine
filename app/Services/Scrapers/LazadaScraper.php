@@ -6,17 +6,17 @@ use Facebook\WebDriver\Remote\RemoteWebDriver;
 use Facebook\WebDriver\Remote\RemoteWebElement;
 use Facebook\WebDriver\WebDriverBy as By;
 
-class LazadaScraper implements MarketplaceScraper
+class LazadaScraper extends BaseScraper implements MarketplaceScraper
 {
-    public function __construct(
-        private RemoteWebDriver $driver
-    ) {
+    public function __construct(RemoteWebDriver $driver)
+    {
+        parent::__construct($driver);
     }
 
     public function searchTop(string $keyword, int $limit = 3): array
     {
         $out = [];
-        $d = $this->driver;
+        $d = $this->driver();
 
         // Lazada: sort harga termurah
         $q = rawurlencode($keyword);

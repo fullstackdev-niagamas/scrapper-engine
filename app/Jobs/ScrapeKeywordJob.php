@@ -8,6 +8,7 @@ use App\Services\Scrapers\MarketplaceScraper;
 use App\Services\Scrapers\TokopediaScraper;
 use App\Services\Scrapers\ShopeeScraper;
 use App\Services\Scrapers\LazadaScraper;
+use Facebook\WebDriver\Remote\RemoteWebDriver;
 use Illuminate\Bus\Batchable;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -28,29 +29,35 @@ class ScrapeKeywordJob implements ShouldQueue
 
     public function handle(): void
     {
-        $item = ImportItem::findOrFail($this->itemId);
-        $batch = $item->batch;
-
-        if (in_array($item->status, ['finished', 'failed'])) {
-            $this->refreshBatchProgress($batch->id);
-            return;
-        }
-
-        $item->update(['status' => 'process']);
-
-        $sources = collect(explode(',', $batch->source_tabs))->filter()->values();
-        $scrapers = [
-            'tokopedia' => app(TokopediaScraper::class),
-            'lazada'    => app(LazadaScraper::class),
-            'shopee'    => app(ShopeeScraper::class)
-        ];
+        /** @var RemoteWebDriver $driver */
+        $driver = app(RemoteWebDriver::class);
 
         try {
+            $item  = ImportItem::findOrFail($this->itemId);
+            $batch = $item->batch;
+
+            if (in_array($item->status, ['finished', 'failed'])) {
+                $this->refreshBatchProgress($batch->id);
+                return;
+            }
+
+            $item->update(['status' => 'process']);
+
+            $sources = collect(explode(',', $batch->source_tabs))->filter()->values();
+
+            // 🔥 2. Share driver yang sama ke semua scraper
+            $scrapers = [
+                'tokopedia' => new TokopediaScraper($driver),
+                'lazada'    => new LazadaScraper($driver),
+                'shopee'    => new ShopeeScraper($driver),
+            ];
 
             foreach ($sources as $src) {
-                /** @var MarketplaceScraper $scraper */
+                /** @var MarketplaceScraper|null $scraper */
                 $scraper = $scrapers[$src] ?? null;
-                if (!$scraper) continue;
+                if (!$scraper) {
+                    continue;
+                }
 
                 $results = $scraper->searchTop($item->keyword, 3);
 
@@ -77,19 +84,24 @@ class ScrapeKeywordJob implements ShouldQueue
                 }
             }
 
+            $item->update(['status' => 'finished']);
+            $this->refreshBatchProgress($batch->id);
         } catch (Throwable $e) {
-
             if ($this->isChromeCrash($e)) {
-                // biar retry
+                // Biar retry
                 throw $e;
             }
 
             // error lain → job gagal
             throw $e;
-        }
 
-        $item->update(['status' => 'finished']);
-        $this->refreshBatchProgress($batch->id);
+        } finally {
+            try {
+                $driver->quit();
+            } catch (\Throwable $e2) {
+                // Safe exit
+            }
+        }
     }
 
 

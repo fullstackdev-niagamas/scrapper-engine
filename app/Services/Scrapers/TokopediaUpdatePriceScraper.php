@@ -7,16 +7,16 @@ use Facebook\WebDriver\Remote\RemoteWebElement;
 use Facebook\WebDriver\WebDriverBy as By;
 use Illuminate\Support\Facades\Log;
 
-class TokopediaUpdatePriceScraper
+class TokopediaUpdatePriceScraper extends BaseScraper
 {
-    public function __construct(
-        private RemoteWebDriver $driver
-    ) {
+    public function __construct(RemoteWebDriver $driver)
+    {
+        parent::__construct($driver);
     }
 
     public function scrape(string $url): array
     {
-        $d = $this->driver;
+        $d = $this->driver();
 
         try {
             $this->navWithRetry($d, $url, 2);
