@@ -18,172 +18,180 @@ class TokopediaScraper implements MarketplaceScraper
         $out = [];
         $d = $this->driver;
 
-        $q = rawurlencode($keyword);
-        $url = "https://www.tokopedia.com/search?st=product&q={$q}&ob=3";
+        try{
 
-        $this->navWithRetry($d, $url, 3);
+            $q = rawurlencode($keyword);
+            $url = "https://www.tokopedia.com/search?st=product&q={$q}&ob=3";
 
-        $this->tryCloseModals();
+            $this->navWithRetry($d, $url, 3);
 
-        $container = $this->waitAny($d, [
-            '[data-testid="divSRPContentProducts"][data-ssr="contentProductsSRPSSR"]',
-            '[data-testid="divSRPContentProducts"]',
-        ], 15000);
+            $this->tryCloseModals();
 
-        if (!$container) {
-            $this->autoScroll($d, 3);
             $container = $this->waitAny($d, [
+                '[data-testid="divSRPContentProducts"][data-ssr="contentProductsSRPSSR"]',
                 '[data-testid="divSRPContentProducts"]',
-            ], 8000);
+            ], 15000);
 
             if (!$container) {
-                if ($this->isCaptchaOrDenied()) {
-                    $this->debugSnapshot($d, 'tokopedia_captcha');
+                $this->autoScroll($d, 3);
+                $container = $this->waitAny($d, [
+                    '[data-testid="divSRPContentProducts"]',
+                ], 8000);
+
+                if (!$container) {
+                    if ($this->isCaptchaOrDenied()) {
+                        $this->debugSnapshot($d, 'tokopedia_captcha');
+                        return [];
+                    }
+                    $this->debugSnapshot($d, 'tokopedia_no_container');
                     return [];
                 }
-                $this->debugSnapshot($d, 'tokopedia_no_container');
-                return [];
             }
-        }
 
-        $cards = $container->findElements(By::cssSelector('a[href^="https://www.tokopedia.com/"]'));
-        if (count($cards) === 0) {
-            $cards = $d->findElements(By::cssSelector('[data-testid="divSRPContentProducts"] a[href^="https://www.tokopedia.com/"]'));
-        }
+            $cards = $container->findElements(By::cssSelector('a[href^="https://www.tokopedia.com/"]'));
+            if (count($cards) === 0) {
+                $cards = $d->findElements(By::cssSelector('[data-testid="divSRPContentProducts"] a[href^="https://www.tokopedia.com/"]'));
+            }
 
-        foreach ($cards as $a) {
-            if (count($out) >= $limit)
-                break;
+            foreach ($cards as $a) {
+                if (count($out) >= $limit)
+                    break;
 
-            $urlProd = $a->getAttribute('href') ?? '';
+                $urlProd = $a->getAttribute('href') ?? '';
 
-            // Gambar
-            // $image = $this->attrOr($a, './/img[@alt="product-image"]', 'src');
+                // Gambar
+                // $image = $this->attrOr($a, './/img[@alt="product-image"]', 'src');
 
-            // Harga
-            $rpNodes = $a->findElements(By::xpath('.//span[starts-with(normalize-space(.),"Rp")] | .//div[starts-with(normalize-space(.),"Rp")] | .//s[starts-with(normalize-space(.),"Rp")] | .//del[starts-with(normalize-space(.),"Rp")]'));
-            $prices = [];
-            foreach ($rpNodes as $n) {
-                $t = trim($n->getText());
-                if ($t === '')
-                    continue;
-                if (preg_match_all('/Rp\s?[0-9\.\,]+/u', $t, $m)) {
-                    foreach ($m[0] as $hit) {
-                        if (empty($prices) || end($prices) !== $hit) {
-                            $prices[] = $hit;
+                // Harga
+                $rpNodes = $a->findElements(By::xpath('.//span[starts-with(normalize-space(.),"Rp")] | .//div[starts-with(normalize-space(.),"Rp")] | .//s[starts-with(normalize-space(.),"Rp")] | .//del[starts-with(normalize-space(.),"Rp")]'));
+                $prices = [];
+                foreach ($rpNodes as $n) {
+                    $t = trim($n->getText());
+                    if ($t === '')
+                        continue;
+                    if (preg_match_all('/Rp\s?[0-9\.\,]+/u', $t, $m)) {
+                        foreach ($m[0] as $hit) {
+                            if (empty($prices) || end($prices) !== $hit) {
+                                $prices[] = $hit;
+                            }
                         }
                     }
                 }
-            }
 
-            if (count($prices) > 1) {
-                $priceDiscount = $prices[0] ?? '';
-                $priceRegular = $prices[1] ?? '';
-            } else {
-                $priceRegular = $prices[0] ?? '';
-                $priceDiscount = null;
-            }
-
-            // Terjual
-            $sold = $this->textOr($a, './/span[contains(normalize-space(.),"terjual")][1]');
-
-            // Nama toko & kota
-            $storeName = '';
-            $kota = '';
-            $hitPath = [];
-
-            // 1) Dengan badge
-            $storeName = $this->textOr($a, './/div[.//img[@alt="shop badge"]]/following-sibling::div[1]/span[contains(@class,"flip")][1]');
-            $kota = $this->textOr($a, './/div[.//img[@alt="shop badge"]]/following-sibling::div[1]/span[contains(@class,"flip")][2]');
-            if ($storeName !== '')
-                $hitPath[] = 'store:badge[1]';
-            if ($kota !== '')
-                $hitPath[] = 'city:badge[2]';
-
-            // 2) Tanpa badge
-            if ($storeName === '') {
-                $storeName = $this->textOr($a, './/div[span[contains(@class,"flip")]][1]/span[contains(@class,"flip")][1]');
-                if ($storeName !== '')
-                    $hitPath[] = 'store:nobadge[1]';
-            }
-            if ($kota === '') {
-                $kota = $this->textOr($a, './/div[span[contains(@class,"flip")]][1]/span[contains(@class,"flip")][2]');
-                if ($kota !== '')
-                    $hitPath[] = 'city:nobadge[2]';
-            }
-
-            if ($kota === '') {
-                $kota = $this->textOr($a, '(.//span[contains(@class,"flip")])[last()]');
-                if ($kota !== '')
-                    $hitPath[] = 'city:last-flip';
-            }
-
-            // 4) Format lama "Toko • Kota"
-            if ($storeName !== '' && $kota === '') {
-                $shopLoc = $this->textOr($a, './/span[contains(normalize-space(.),"•")]');
-                if ($shopLoc !== '' && str_contains($shopLoc, '•')) {
-                    [, $kota] = array_map('trim', explode('•', $shopLoc, 2));
-                    if ($kota !== '')
-                        $hitPath[] = 'city:dot-bullet';
-                }
-            }
-
-            if ($kota === '') {
-                $kota = $this->jsSelectLastFlipText($this->driver, $a);
-                if ($kota !== '')
-                    $hitPath[] = 'city:js-last-flip';
-            }
-
-            if ($kota !== '') {
-                if (preg_match('/\bterjual\b|\brating\b/i', $kota))
-                    $kota = '';
-                if ($kota !== '' && preg_match('/^\d+(?:[\.\,]\d+)?$/', $kota))
-                    $kota = '';
-            }
-
-            if ($priceDiscount === '' && $sold === '' && $storeName === '') {
-                continue;
-            }
-
-            $provinsi = '';
-            if ($kota) {
-                $provinsi = $this->lookupProvinceByCity($kota);
-
-                $upper = strtoupper($provinsi);
-                if (str_starts_with($upper, 'DKI ')) {
-                    $provinsi = 'DKI ' . ucwords(strtolower(substr($provinsi, 4)));
-                } elseif (str_starts_with($upper, 'DIY')) {
-                    $provinsi = 'DIY';
-                } elseif (str_starts_with($upper, 'DI ')) {
-                    $provinsi = 'DI ' . ucwords(strtolower(substr($provinsi, 3)));
+                if (count($prices) > 1) {
+                    $priceDiscount = $prices[0] ?? '';
+                    $priceRegular = $prices[1] ?? '';
                 } else {
-                    $provinsi = ucwords(strtolower($provinsi));
+                    $priceRegular = $prices[0] ?? '';
+                    $priceDiscount = null;
                 }
+
+                // Terjual
+                $sold = $this->textOr($a, './/span[contains(normalize-space(.),"terjual")][1]');
+
+                // Nama toko & kota
+                $storeName = '';
+                $kota = '';
+                $hitPath = [];
+
+                // 1) Dengan badge
+                $storeName = $this->textOr($a, './/div[.//img[@alt="shop badge"]]/following-sibling::div[1]/span[contains(@class,"flip")][1]');
+                $kota = $this->textOr($a, './/div[.//img[@alt="shop badge"]]/following-sibling::div[1]/span[contains(@class,"flip")][2]');
+                if ($storeName !== '')
+                    $hitPath[] = 'store:badge[1]';
+                if ($kota !== '')
+                    $hitPath[] = 'city:badge[2]';
+
+                // 2) Tanpa badge
+                if ($storeName === '') {
+                    $storeName = $this->textOr($a, './/div[span[contains(@class,"flip")]][1]/span[contains(@class,"flip")][1]');
+                    if ($storeName !== '')
+                        $hitPath[] = 'store:nobadge[1]';
+                }
+                if ($kota === '') {
+                    $kota = $this->textOr($a, './/div[span[contains(@class,"flip")]][1]/span[contains(@class,"flip")][2]');
+                    if ($kota !== '')
+                        $hitPath[] = 'city:nobadge[2]';
+                }
+
+                if ($kota === '') {
+                    $kota = $this->textOr($a, '(.//span[contains(@class,"flip")])[last()]');
+                    if ($kota !== '')
+                        $hitPath[] = 'city:last-flip';
+                }
+
+                // 4) Format lama "Toko • Kota"
+                if ($storeName !== '' && $kota === '') {
+                    $shopLoc = $this->textOr($a, './/span[contains(normalize-space(.),"•")]');
+                    if ($shopLoc !== '' && str_contains($shopLoc, '•')) {
+                        [, $kota] = array_map('trim', explode('•', $shopLoc, 2));
+                        if ($kota !== '')
+                            $hitPath[] = 'city:dot-bullet';
+                    }
+                }
+
+                if ($kota === '') {
+                    $kota = $this->jsSelectLastFlipText($this->driver, $a);
+                    if ($kota !== '')
+                        $hitPath[] = 'city:js-last-flip';
+                }
+
+                if ($kota !== '') {
+                    if (preg_match('/\bterjual\b|\brating\b/i', $kota))
+                        $kota = '';
+                    if ($kota !== '' && preg_match('/^\d+(?:[\.\,]\d+)?$/', $kota))
+                        $kota = '';
+                }
+
+                if ($priceDiscount === '' && $sold === '' && $storeName === '') {
+                    continue;
+                }
+
+                $provinsi = '';
+                if ($kota) {
+                    $provinsi = $this->lookupProvinceByCity($kota);
+
+                    $upper = strtoupper($provinsi);
+                    if (str_starts_with($upper, 'DKI ')) {
+                        $provinsi = 'DKI ' . ucwords(strtolower(substr($provinsi, 4)));
+                    } elseif (str_starts_with($upper, 'DIY')) {
+                        $provinsi = 'DIY';
+                    } elseif (str_starts_with($upper, 'DI ')) {
+                        $provinsi = 'DI ' . ucwords(strtolower(substr($provinsi, 3)));
+                    } else {
+                        $provinsi = ucwords(strtolower($provinsi));
+                    }
+                }
+
+                $out[] = [
+                    'url' => $urlProd,
+                    'image' => null,
+                    'store_name' => $storeName,
+                    'price_discount' => $priceDiscount,
+                    'price_regular' => $priceRegular,
+                    'sold' => $sold,
+                    'kota' => $kota,
+                    'provinsi' => $provinsi
+                ];
+                 // cleanup
+                unset($entry, $priceCandidates, $priceDiscount, $priceRegular, $storeName, $kota, $provinsi, $image);
+                gc_collect_cycles();
             }
 
-            $out[] = [
-                'url' => $urlProd,
-                'image' => null,
-                'store_name' => $storeName,
-                'price_discount' => $priceDiscount,
-                'price_regular' => $priceRegular,
-                'sold' => $sold,
-                'kota' => $kota,
-                'provinsi' => $provinsi
-            ];
-        }
+            usort($out, function ($a, $b) {
+                $pa = (int) preg_replace('/[^0-9]/', '', $a['price_discount'] ?? '');
+                $pb = (int) preg_replace('/[^0-9]/', '', $b['price_discount'] ?? '');
+                return $pa <=> $pb;
+            });
 
-        usort($out, function ($a, $b) {
-            $pa = (int) preg_replace('/[^0-9]/', '', $a['price_discount'] ?? '');
-            $pb = (int) preg_replace('/[^0-9]/', '', $b['price_discount'] ?? '');
-            return $pa <=> $pb;
-        });
+            if (count($out) === 0) {
+                $this->debugSnapshot($d, 'tokopedia_zero_after_parse');
+            }
 
-        if (count($out) === 0) {
-            $this->debugSnapshot($d, 'tokopedia_zero_after_parse');
-        }
-
-        return array_slice($out, 0, $limit);
+            return array_slice($out, 0, $limit);
+        } finally {
+            try { $d->quit(); } catch (\Throwable $e) {}
+            gc_collect_cycles();        }
     }
 
     public function fetchDetailPrices(string $productUrl): array
