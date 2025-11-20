@@ -6,10 +6,11 @@ use Facebook\WebDriver\Remote\RemoteWebDriver;
 use Facebook\WebDriver\WebDriverBy as By;
 use Illuminate\Support\Facades\Log;
 
-class LazadaUpdatePriceScraper
+class LazadaUpdatePriceScraper extends BaseScraper
 {
-    public function __construct(private RemoteWebDriver $driver)
+    public function __construct(RemoteWebDriver $driver)
     {
+        parent::__construct($driver);
     }
 
     /**
@@ -18,7 +19,7 @@ class LazadaUpdatePriceScraper
      */
     public function scrape(string $url): array
     {
-        $d = $this->driver;
+        $d = $this->driver();
 
         try {
             $d->get($url);

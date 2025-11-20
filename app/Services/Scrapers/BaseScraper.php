@@ -5,15 +5,12 @@ use Facebook\WebDriver\Remote\RemoteWebDriver;
 
 abstract class BaseScraper
 {
-    public function __construct(protected ?RemoteWebDriver $driver = null)
+    public function __construct(protected RemoteWebDriver $driver)
     {
     }
 
     protected function driver(): RemoteWebDriver
     {
-        if (!$this->driver) {
-            $this->driver = app(RemoteWebDriver::class);
-        }
         return $this->driver;
     }
 
