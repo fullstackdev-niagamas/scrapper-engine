@@ -17,142 +17,146 @@ class LazadaScraper extends BaseScraper implements MarketplaceScraper
     {
         $out = [];
         $d = $this->driver();
+        
+        try {
+            // Lazada: sort harga termurah
+            $q = rawurlencode($keyword);
+            $url = "https://www.lazada.co.id/catalog/?q={$q}&_keyori=ss&sort=priceasc";
 
-        // Lazada: sort harga termurah
-        $q = rawurlencode($keyword);
-        $url = "https://www.lazada.co.id/catalog/?q={$q}&_keyori=ss&sort=priceasc";
+            $this->navWithRetry($d, $url, 3);
 
-        $this->navWithRetry($d, $url, 3);
+            $this->tryCloseModals();
 
-        $this->tryCloseModals();
-
-        $container = $this->waitAny($d, [
-            'ul[data-qa-locator="general_product_list"]',
-            'div[data-qa-locator="general-products"]',
-            '#root', // fallback
-        ], 15000);
-
-        if (!$container) {
-            $this->autoScroll($d, 3);
             $container = $this->waitAny($d, [
                 'ul[data-qa-locator="general_product_list"]',
-            ], 8000);
+                'div[data-qa-locator="general-products"]',
+                '#root', // fallback
+            ], 15000);
 
             if (!$container) {
-                if ($this->isCaptchaOrDenied()) {
-                    $this->debugSnapshot($d, 'lazada_captcha');
+                $this->autoScroll($d, 3);
+                $container = $this->waitAny($d, [
+                    'ul[data-qa-locator="general_product_list"]',
+                ], 8000);
+
+                if (!$container) {
+                    if ($this->isCaptchaOrDenied()) {
+                        $this->debugSnapshot($d, 'lazada_captcha');
+                        return [];
+                    }
+                    $this->debugSnapshot($d, 'lazada_no_container');
                     return [];
                 }
-                $this->debugSnapshot($d, 'lazada_no_container');
-                return [];
-            }
-        }
-
-        $this->waitAny($d, [
-            'ul[data-qa-locator="general_product_list"] li',
-            'ul[data-qa-locator="general_product_list"] a[href*="/products/"]',
-            'a[href*="/products/"]',
-        ], 8000);
-
-        $this->autoScroll($d, 2);
-        usleep(300_000);
-
-        $cards = $d->findElements(By::cssSelector('[data-qa-locator="product-item"]'));
-        if (empty($cards)) {
-            $cards = $d->findElements(By::xpath('//*[@data-qa-locator="general-products"]//*[@data-qa-locator="product-item"]'));
-        }
-
-        $norm = function (string $u): string {
-            if ($u === '')
-                return '';
-            if (str_starts_with($u, '//'))
-                return 'https:' . $u;
-            if (str_starts_with($u, '/'))
-                return 'https://www.lazada.co.id' . $u;
-            return $u;
-        };
-
-        foreach ($cards as $card) {
-            if (count($out) >= $limit)
-                break;
-
-            $aEls = $card->findElements(By::xpath('.//a[contains(@href,"/products/")]'));
-            if (!$aEls)
-                continue;
-            $urlProd = $norm((string) $aEls[0]->getAttribute('href'));
-
-            $priceRegular = '';
-            $priceNodes = $card->findElements(By::xpath('.//div[contains(@class,"aBrP0")]//*[contains(@class,"ooOxS")]'));
-            if ($priceNodes) {
-                $txt = trim($priceNodes[0]->getText());
-                if (preg_match('/Rp\s?[0-9\.\,]+/u', $txt, $m))
-                    $priceRegular = $m[0];
-            }
-            $priceDiscount = null;
-
-            $sold = '';
-            if ($sold === '') {
-                $full = trim($card->getAttribute('innerText') ?? $card->getText());
-                $full = preg_replace('/\s+/', ' ', mb_strtolower($full));
-                if (preg_match('/(\d[\d\.\,]*)\s*sold(?:\s*\(\d+\))?/u', $full, $m) || preg_match('/(\d[\d\.\,]*)\s*terjual/u', $full, $m))
-                    $sold = $m[1];
             }
 
-            $kota = '';
-            $locEls = $card->findElements(By::xpath('.//span[contains(@class,"oa6ri")]'));
-            if ($locEls) {
-                $kota = trim((string) $locEls[0]->getAttribute('title') ?: $locEls[0]->getText());
-                $kota = preg_replace('/\s+/', ' ', $kota);
-                if ($kota !== '' && preg_match('/^\d+(\.\d+)?$/', $kota))
-                    $kota = '';
+            $this->waitAny($d, [
+                'ul[data-qa-locator="general_product_list"] li',
+                'ul[data-qa-locator="general_product_list"] a[href*="/products/"]',
+                'a[href*="/products/"]',
+            ], 8000);
+
+            $this->autoScroll($d, 2);
+            usleep(300_000);
+
+            $cards = $d->findElements(By::cssSelector('[data-qa-locator="product-item"]'));
+            if (empty($cards)) {
+                $cards = $d->findElements(By::xpath('//*[@data-qa-locator="general-products"]//*[@data-qa-locator="product-item"]'));
             }
 
-            $storeName = '';
-            $sn = $card->findElements(By::xpath('.//span[contains(@class,"seller-name")]'));
-            if ($sn)
-                $storeName = preg_replace('/\s+/', ' ', trim($sn[0]->getText()));
+            $norm = function (string $u): string {
+                if ($u === '')
+                    return '';
+                if (str_starts_with($u, '//'))
+                    return 'https:' . $u;
+                if (str_starts_with($u, '/'))
+                    return 'https://www.lazada.co.id' . $u;
+                return $u;
+            };
 
-            if ($priceRegular === '' && $sold === '' && $storeName === '')
-                continue;
+            foreach ($cards as $card) {
+                if (count($out) >= $limit)
+                    break;
 
-            $provinsi = '';
-            if ($kota) {
-                $provinsi = $this->lookupProvinceByCity($kota);
+                $aEls = $card->findElements(By::xpath('.//a[contains(@href,"/products/")]'));
+                if (!$aEls)
+                    continue;
+                $urlProd = $norm((string) $aEls[0]->getAttribute('href'));
 
-                $upper = strtoupper($provinsi);
-                if (str_starts_with($upper, 'DKI ')) {
-                    $provinsi = 'DKI ' . ucwords(strtolower(substr($provinsi, 4)));
-                } elseif (str_starts_with($upper, 'DIY')) {
-                    $provinsi = 'DIY';
-                } elseif (str_starts_with($upper, 'DI ')) {
-                    $provinsi = 'DI ' . ucwords(strtolower(substr($provinsi, 3)));
-                } else {
-                    $provinsi = ucwords(strtolower($provinsi));
+                $priceRegular = '';
+                $priceNodes = $card->findElements(By::xpath('.//div[contains(@class,"aBrP0")]//*[contains(@class,"ooOxS")]'));
+                if ($priceNodes) {
+                    $txt = trim($priceNodes[0]->getText());
+                    if (preg_match('/Rp\s?[0-9\.\,]+/u', $txt, $m))
+                        $priceRegular = $m[0];
                 }
+                $priceDiscount = null;
+
+                $sold = '';
+                if ($sold === '') {
+                    $full = trim($card->getAttribute('innerText') ?? $card->getText());
+                    $full = preg_replace('/\s+/', ' ', mb_strtolower($full));
+                    if (preg_match('/(\d[\d\.\,]*)\s*sold(?:\s*\(\d+\))?/u', $full, $m) || preg_match('/(\d[\d\.\,]*)\s*terjual/u', $full, $m))
+                        $sold = $m[1];
+                }
+
+                $kota = '';
+                $locEls = $card->findElements(By::xpath('.//span[contains(@class,"oa6ri")]'));
+                if ($locEls) {
+                    $kota = trim((string) $locEls[0]->getAttribute('title') ?: $locEls[0]->getText());
+                    $kota = preg_replace('/\s+/', ' ', $kota);
+                    if ($kota !== '' && preg_match('/^\d+(\.\d+)?$/', $kota))
+                        $kota = '';
+                }
+
+                $storeName = '';
+                $sn = $card->findElements(By::xpath('.//span[contains(@class,"seller-name")]'));
+                if ($sn)
+                    $storeName = preg_replace('/\s+/', ' ', trim($sn[0]->getText()));
+
+                if ($priceRegular === '' && $sold === '' && $storeName === '')
+                    continue;
+
+                $provinsi = '';
+                if ($kota) {
+                    $provinsi = $this->lookupProvinceByCity($kota);
+
+                    $upper = strtoupper($provinsi);
+                    if (str_starts_with($upper, 'DKI ')) {
+                        $provinsi = 'DKI ' . ucwords(strtolower(substr($provinsi, 4)));
+                    } elseif (str_starts_with($upper, 'DIY')) {
+                        $provinsi = 'DIY';
+                    } elseif (str_starts_with($upper, 'DI ')) {
+                        $provinsi = 'DI ' . ucwords(strtolower(substr($provinsi, 3)));
+                    } else {
+                        $provinsi = ucwords(strtolower($provinsi));
+                    }
+                }
+
+                $out[] = [
+                    'url' => $urlProd,
+                    'store_name' => $storeName,
+                    'price_discount' => $priceDiscount,
+                    'price_regular' => $priceRegular,
+                    'sold' => $sold,
+                    'kota' => $kota,
+                    'provinsi' => $provinsi
+                ];
             }
 
-            $out[] = [
-                'url' => $urlProd,
-                'store_name' => $storeName,
-                'price_discount' => $priceDiscount,
-                'price_regular' => $priceRegular,
-                'sold' => $sold,
-                'kota' => $kota,
-                'provinsi' => $provinsi
-            ];
+            usort($out, function ($a, $b) {
+                $pa = (int) preg_replace('/[^0-9]/', '', $a['price_discount'] ?? '') ?: (int) preg_replace('/[^0-9]/', '', $a['price_regular'] ?? '');
+                $pb = (int) preg_replace('/[^0-9]/', '', $b['price_discount'] ?? '') ?: (int) preg_replace('/[^0-9]/', '', $b['price_regular'] ?? '');
+                return $pa <=> $pb;
+            });
+
+            if (count($out) === 0) {
+                $this->debugSnapshot($d, 'lazada_zero_after_parse');
+            }
+
+            return array_slice($out, 0, $limit);
+        } finally {
+            $d->quit();
         }
-
-        usort($out, function ($a, $b) {
-            $pa = (int) preg_replace('/[^0-9]/', '', $a['price_discount'] ?? '') ?: (int) preg_replace('/[^0-9]/', '', $a['price_regular'] ?? '');
-            $pb = (int) preg_replace('/[^0-9]/', '', $b['price_discount'] ?? '') ?: (int) preg_replace('/[^0-9]/', '', $b['price_regular'] ?? '');
-            return $pa <=> $pb;
-        });
-
-        if (count($out) === 0) {
-            $this->debugSnapshot($d, 'lazada_zero_after_parse');
-        }
-
-        return array_slice($out, 0, $limit);
     }
 
     /* ====================== Helpers ====================== */
